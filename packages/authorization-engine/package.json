@@ -1,0 +1,22 @@
+{
+  "name": "@canary/authorization-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@canary/graph-core": "workspace:*",
+    "@canary/event-schema": "workspace:*",
+    "ioredis": "^5.4.0",
+    "postgres": "^3.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "rimraf": "^6.0.0"
+  }
+}

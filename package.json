@@ -1,0 +1,19 @@
+{
+  "name": "canary",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Graph-aware authorization engine for AI agents",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel run dev",
+    "test": "pnpm -r run test",
+    "test:e2e": "pnpm --filter @canary/e2e run test",
+    "lint": "pnpm -r run lint",
+    "clean": "pnpm -r run clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

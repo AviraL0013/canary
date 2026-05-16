@@ -1,0 +1,164 @@
+version: "3.9"
+
+services:
+  neo4j:
+    image: neo4j:5.21
+    container_name: canary-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/canary_secret
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./neo4j/init.cypher:/var/lib/neo4j/import/init.cypher
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "canary_secret", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  postgres:
+    image: postgres:16
+    container_name: canary-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: canary
+      POSTGRES_PASSWORD: canary_secret
+      POSTGRES_DB: canary
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canary -d canary"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.2
+    container_name: canary-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  neo4j-init:
+    image: neo4j:5.21
+    container_name: canary-neo4j-init
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ./neo4j/init.cypher:/init.cypher
+    entrypoint: >
+      bash -c "cypher-shell -a bolt://neo4j:7687 -u neo4j -p canary_secret < /init.cypher && echo 'Neo4j schema initialized'"
+    restart: "no"
+
+  ingestion:
+    build:
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
+    container_name: canary-ingestion
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: canary_secret
+      REDIS_URL: redis://redis:6379
+      POSTGRES_URL: postgresql://canary:canary_secret@postgres:5432/canary
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  authorization:
+    build:
+      context: ..
+      dockerfile: services/authorization/Dockerfile
+    container_name: canary-authorization
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: canary_secret
+      REDIS_URL: redis://redis:6379
+      POSTGRES_URL: postgresql://canary:canary_secret@postgres:5432/canary
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  audit:
+    build:
+      context: ..
+      dockerfile: services/audit/Dockerfile
+    container_name: canary-audit
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: "3003"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: canary_secret
+      REDIS_URL: redis://redis:6379
+      POSTGRES_URL: postgresql://canary:canary_secret@postgres:5432/canary
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3003/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  postgres_data:
+  redis_data:
