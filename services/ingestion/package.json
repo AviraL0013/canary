@@ -12,6 +12,7 @@
   "dependencies": {
     "@canary/event-schema": "workspace:*",
     "@canary/graph-core": "workspace:*",
+    "@canary/authorization-engine": "workspace:*",
     "fastify": "^4.28.0",
     "@fastify/cors": "^9.0.0",
     "ioredis": "^5.4.0",

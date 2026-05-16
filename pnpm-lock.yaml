@@ -154,6 +154,9 @@ importers:
 
   services/ingestion:
     dependencies:
+      '@canary/authorization-engine':
+        specifier: workspace:*
+        version: link:../../packages/authorization-engine
       '@canary/event-schema':
         specifier: workspace:*
         version: link:../../packages/event-schema

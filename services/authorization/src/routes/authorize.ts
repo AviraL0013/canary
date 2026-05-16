@@ -12,7 +12,7 @@ import {
   type PolicyConfig,
   type OrgConfig,
 } from "@canary/authorization-engine";
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 import postgres from "postgres";
 
 const AuthorizationRequestSchema = z.object({

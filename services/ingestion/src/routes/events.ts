@@ -7,7 +7,7 @@ import { Neo4jDelegationRepository } from "@canary/graph-core";
 import { ContextCache } from "@canary/authorization-engine";
 import { handleRevocation } from "../handlers/revocationHandler.js";
 import postgres from "postgres";
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 
 export async function eventsRoute(server: FastifyInstance) {
   // Initialize dependencies

@@ -3,7 +3,7 @@
 import type { FastifyInstance } from "fastify";
 import { Neo4jDelegationRepository } from "@canary/graph-core";
 import { ContextCache } from "@canary/authorization-engine";
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 import postgres from "postgres";
 
 export async function healthRoute(server: FastifyInstance) {
