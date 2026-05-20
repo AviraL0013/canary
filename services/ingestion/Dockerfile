@@ -18,6 +18,8 @@ COPY packages/graph-core/ ./packages/graph-core/
 COPY packages/authorization-engine/ ./packages/authorization-engine/
 COPY services/ingestion/ ./services/ingestion/
 
+# Build — delete stale tsbuildinfo before compiling
+RUN find . -name "*.tsbuildinfo" -delete
 # Build
 RUN pnpm --filter @canary/event-schema run build
 RUN pnpm --filter @canary/graph-core run build

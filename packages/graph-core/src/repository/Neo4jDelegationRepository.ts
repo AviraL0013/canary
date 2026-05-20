@@ -114,6 +114,8 @@ export class Neo4jDelegationRepository implements DelegationGraphRepository {
         `
         MATCH (a:Agent {id: $agent_id})
         MERGE (t:Tool {id: $tool_id})
+        ON CREATE SET t.risk_tier = $tool_risk_tier
+        ON MATCH SET  t.risk_tier = CASE WHEN t.risk_tier IS NULL THEN $tool_risk_tier ELSE t.risk_tier END
         CREATE (a)-[:CALLED {
           id: $called_edge_id,
           scope_id: $scope_id,
@@ -129,6 +131,7 @@ export class Neo4jDelegationRepository implements DelegationGraphRepository {
           parameters_hash: params.parameters_hash,
           authorization_decision_id: params.authorization_decision_id,
           called_edge_id: params.called_edge_id,
+          tool_risk_tier: params.tool_risk_tier ?? "LOW",
         }
       );
     } finally {

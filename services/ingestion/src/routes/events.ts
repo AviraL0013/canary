@@ -92,6 +92,7 @@ export async function eventsRoute(server: FastifyInstance) {
             parameters_hash: event.payload.parameters_hash,
             authorization_decision_id: event.payload.authorization_decision_id,
             called_edge_id: event.payload.called_edge_id,
+            tool_risk_tier: event.payload.tool_risk_tier,
           });
           break;
 

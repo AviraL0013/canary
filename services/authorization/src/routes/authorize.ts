@@ -134,12 +134,23 @@ export async function authorizeRoute(server: FastifyInstance) {
         };
 
     try {
+      // Look up tool risk tier from graph evaluation
+      const evalResult = await repository.evaluateAuthorization({
+        agent_id: authRequest.requesting_agent_id,
+        tool_id: authRequest.tool_id,
+        action_type: authRequest.action_type,
+        scope_id: authRequest.scope_id,
+        org_id: authRequest.org_id,
+      });
+      const toolRiskTier = evalResult.tool_risk_tier ?? "LOW";
+      const toolOrgId = evalResult.tool_org_id || authRequest.org_id;
+
       // Evaluate authorization
       const decision = await engine.evaluate(
         authRequest,
         orgConfig,
-        "LOW", // Default — enriched by graph query if available
-        authRequest.org_id // Default same-org
+        toolRiskTier,
+        toolOrgId
       );
 
       // Write decision to PostgreSQL (append-only audit log)
