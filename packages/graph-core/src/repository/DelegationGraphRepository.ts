@@ -40,6 +40,7 @@ export interface RecordToolCallParams {
   parameters_hash: string;
   authorization_decision_id: string;
   called_edge_id: string;
+  tool_risk_tier?: string; // optional — set on Tool node if provided
 }
 
 export interface RecordActionParams {
