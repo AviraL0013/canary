@@ -9,7 +9,7 @@ import type { HumanNode, AgentNode, ToolNode, ActionNode } from "@canary/event-s
 const TRACE_ACTION_CYPHER = `
 MATCH (action:Action {id: $action_id})
 MATCH path = (human:Human)-[:DELEGATED_TO*0..]->(agent:Agent)
-             -[:INVOKED*0..]->(leaf:Agent)
+             -[:DELEGATED_TO*0..]->(leaf:Agent)
              -[:CALLED]->(tool:Tool)
              -[:EXECUTED]->(action)
 

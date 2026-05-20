@@ -15,7 +15,7 @@ export interface ChainHop {
   node_type: "Human" | "Agent" | "Tool" | "Action";
   node_id: string;
   node_data: HumanNode | AgentNode | ToolNode | ActionNode;
-  edge_type: "DELEGATED_TO" | "INVOKED" | "CALLED" | "EXECUTED";
+  edge_type: "DELEGATED_TO" | "CALLED" | "EXECUTED";
   edge_data: Record<string, unknown>;
   depth: number;
   scope_id: string | null;

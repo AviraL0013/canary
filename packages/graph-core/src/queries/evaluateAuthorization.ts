@@ -14,7 +14,7 @@ MATCH (tool:Tool {id: $tool_id})
 
 // Find delegation chain from human sponsor to this agent
 OPTIONAL MATCH chain_path = (human:Human)-[:DELEGATED_TO]->(root:Agent)
-  -[:INVOKED*0..]->(agent)
+  -[:DELEGATED_TO*0..]->(agent)
 WHERE all(r IN relationships(chain_path)
   WHERE coalesce(r.status, 'ACTIVE') = 'ACTIVE')
 

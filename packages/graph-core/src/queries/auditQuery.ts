@@ -9,20 +9,16 @@ import neo4j from "neo4j-driver";
 
 const AUDIT_QUERY_CYPHER = `
 MATCH (human:Human {org_id: $org_id})
-  -[:DELEGATED_TO*1..]->(agent:Agent)
-  -[:INVOKED*0..]->(leaf:Agent)
-  -[:CALLED {authorization_decision_id: ''}]->(tool:Tool)
+  -[:DELEGATED_TO*1..]->(leaf:Agent)
+  -[:CALLED]->(tool:Tool)
   -[:EXECUTED]->(action:Action)
 WHERE ($human_id = '' OR human.id = $human_id)
   AND action.executed_at >= datetime($start_time)
   AND action.executed_at <= datetime($end_time)
 
-MATCH full_path = (human)-[:DELEGATED_TO|INVOKED|CALLED|EXECUTED*]->(action)
+MATCH full_path = (human)-[:DELEGATED_TO*1..]->(leaf)-[call:CALLED]->(tool)-[:EXECUTED]->(action)
 
-// Collect call edge for decision ID
-MATCH (leaf2:Agent)-[call:CALLED]->(tool2:Tool)-[:EXECUTED]->(action)
-
-WITH human, action, tool2, call, full_path,
+WITH human, action, tool, call, full_path,
   [node IN nodes(full_path) | {
     labels:    labels(node),
     id:        node.id,
@@ -63,8 +59,7 @@ RETURN
 
 const COUNT_QUERY_CYPHER = `
 MATCH (human:Human {org_id: $org_id})
-  -[:DELEGATED_TO*1..]->(agent:Agent)
-  -[:INVOKED*0..]->(leaf:Agent)
+  -[:DELEGATED_TO*1..]->(leaf:Agent)
   -[:CALLED]->(tool:Tool)
   -[:EXECUTED]->(action:Action)
 WHERE ($human_id = '' OR human.id = $human_id)

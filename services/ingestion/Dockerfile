@@ -1,31 +1,28 @@
-FROM node:20-alpine AS base
+FROM node:20
+
 RUN npm install -g pnpm@9.15.0
+
 WORKDIR /app
 
-# Copy workspace manifests
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY packages/event-schema/package.json ./packages/event-schema/
-COPY packages/graph-core/package.json ./packages/graph-core/
-COPY packages/authorization-engine/package.json ./packages/authorization-engine/
-COPY services/ingestion/package.json ./services/ingestion/
+# Copy entire monorepo
+COPY . .
 
-# Install all deps
-RUN pnpm install --frozen-lockfile
+# Install workspace dependencies
+RUN pnpm install -r --frozen-lockfile
 
-# Copy source
-COPY packages/event-schema/ ./packages/event-schema/
-COPY packages/graph-core/ ./packages/graph-core/
-COPY packages/authorization-engine/ ./packages/authorization-engine/
-COPY services/ingestion/ ./services/ingestion/
-
-# Build — delete stale tsbuildinfo before compiling
+# Remove stale TS cache
 RUN find . -name "*.tsbuildinfo" -delete
-# Build
-RUN pnpm --filter @canary/event-schema run build
-RUN pnpm --filter @canary/graph-core run build
-RUN pnpm --filter @canary/authorization-engine run build
-RUN pnpm --filter @canary/ingestion run build
+
+# Build shared packages
+RUN pnpm exec tsc -p packages/event-schema
+RUN pnpm exec tsc -p packages/graph-core
+RUN pnpm exec tsc -p packages/authorization-engine
+
+# Build ingestion service
+RUN pnpm exec tsc -p services/ingestion
 
 WORKDIR /app/services/ingestion
+
 EXPOSE 3001
+
 CMD ["node", "dist/server.js"]

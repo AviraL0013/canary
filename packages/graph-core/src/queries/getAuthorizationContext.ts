@@ -9,11 +9,11 @@ import type { RiskTier } from "@canary/event-schema";
 const GET_AUTHORIZATION_CONTEXT_CYPHER = `
 // Find an active delegation from human in the org to the target agent
 // Case 1: agent IS the root agent (depth 0)
-// Case 2: agent is a descendant via INVOKED chain
+// Case 2: agent is a descendant via DELEGATED_TO chain
 MATCH (human:Human {org_id: $org_id})-[d:DELEGATED_TO {status: 'ACTIVE'}]->(root:Agent)
-MATCH full_path = (root)-[:INVOKED*0..]->(target:Agent {id: $agent_id})
+MATCH full_path = (root)-[:DELEGATED_TO*0..]->(target:Agent {id: $agent_id})
 
-// Collect edges along the chain (DELEGATED_TO + INVOKED hops)
+// Collect edges along the chain (DELEGATED_TO hops)
 WITH human, d, root, target, full_path,
   [{
     from_id:               human.id,
@@ -29,7 +29,7 @@ WITH human, d, root, target, full_path,
     to_id:                 endNode(rel).id,
     scope_id:              coalesce(rel.scope_id, ''),
     depth:                 coalesce(rel.depth, 0),
-    granted_at:            coalesce(toString(rel.invoked_at), ''),
+    granted_at:            coalesce(toString(rel.delegated_at), coalesce(toString(rel.granted_at), '')),
     expires_at:            '',
     status:                coalesce(rel.status, 'ACTIVE'),
     inherited_permissions: coalesce(rel.inherited_permissions, [])

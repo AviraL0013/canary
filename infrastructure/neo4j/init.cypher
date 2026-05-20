@@ -49,8 +49,8 @@ CREATE INDEX delegated_to_status_idx IF NOT EXISTS
 CREATE INDEX delegated_to_expires_idx IF NOT EXISTS
   FOR ()-[r:DELEGATED_TO]-() ON (r.expires_at);
 
-CREATE INDEX invoked_depth_idx IF NOT EXISTS
-  FOR ()-[r:INVOKED]-() ON (r.depth);
+CREATE INDEX delegated_depth_idx IF NOT EXISTS
+  FOR ()-[r:DELEGATED_TO]-() ON (r.depth);
 
 CREATE INDEX called_decision_idx IF NOT EXISTS
   FOR ()-[r:CALLED]-() ON (r.authorization_decision_id);

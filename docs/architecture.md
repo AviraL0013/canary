@@ -112,7 +112,7 @@ This model provides strong revocation guarantees at the cost of occasional false
 
 When a delegation is revoked:
 
-1. **Graph write (atomic)**: Mark root edge + all descendant INVOKED edges as REVOKED
+1. **Graph write (atomic)**: Mark root edge + all descendant DELEGATED_TO edges as REVOKED
 2. **Cache invalidation**: Delete Redis keys for ALL affected agents
 3. **Approval cleanup**: Auto-deny all pending approval requests in subtree
 4. **Security alerting**: Detect and flag any post-revocation actions (out-of-order)

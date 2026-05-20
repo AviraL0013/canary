@@ -1,25 +1,28 @@
-FROM node:20-alpine AS base
+FROM node:20
+
 RUN npm install -g pnpm@9.15.0
+
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY packages/event-schema/package.json ./packages/event-schema/
-COPY packages/graph-core/package.json ./packages/graph-core/
-COPY packages/authorization-engine/package.json ./packages/authorization-engine/
-COPY services/authorization/package.json ./services/authorization/
+# Copy entire monorepo
+COPY . .
 
-RUN pnpm install --frozen-lockfile
+# Install workspace dependencies
+RUN pnpm install -r --frozen-lockfile
 
-COPY packages/event-schema/ ./packages/event-schema/
-COPY packages/graph-core/ ./packages/graph-core/
-COPY packages/authorization-engine/ ./packages/authorization-engine/
-COPY services/authorization/ ./services/authorization/
+# Remove stale TS cache
+RUN find . -name "*.tsbuildinfo" -delete
 
-RUN pnpm --filter @canary/event-schema run build
-RUN pnpm --filter @canary/graph-core run build
-RUN pnpm --filter @canary/authorization-engine run build
-RUN pnpm --filter @canary/authorization run build
+# Build shared packages
+RUN pnpm exec tsc -p packages/event-schema
+RUN pnpm exec tsc -p packages/graph-core
+RUN pnpm exec tsc -p packages/authorization-engine
+
+# Build authorization service
+RUN pnpm exec tsc -p services/authorization
 
 WORKDIR /app/services/authorization
+
 EXPOSE 3002
+
 CMD ["node", "dist/server.js"]

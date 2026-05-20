@@ -110,7 +110,7 @@ Also ships with `wrapOpenAIFunction()` and `wrapCrewAITool()`.
 Every authorization decision walks a graph path:
 
 ```
-Human ──DELEGATED_TO──▶ Agent ──INVOKED──▶ Sub-Agent ──CALLED──▶ Tool ──EXECUTED──▶ Action
+Human ──DELEGATED_TO──▶ Agent ──DELEGATED_TO──▶ Sub-Agent ──CALLED──▶ Tool ──EXECUTED──▶ Action
 ```
 
 Each edge carries: permissions, expiry, scope, and status (ACTIVE/REVOKED).
