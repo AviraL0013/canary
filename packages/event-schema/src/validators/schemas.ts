@@ -56,6 +56,7 @@ export const ToolCalledPayloadSchema = z.object({
   parameters_hash: z.string().min(1),
   authorization_decision_id: z.string().min(1),
   called_edge_id: z.string().min(1),
+  tool_risk_tier: RiskTierSchema.optional(), // optional — sets risk_tier on Tool node
 });
 
 export const ActionExecutedPayloadSchema = z.object({
