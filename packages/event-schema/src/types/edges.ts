@@ -7,7 +7,6 @@ export interface DelegatedToEdge {
   granted_at: string;
   expires_at: string;
   grant_reason: string;
-  depth: 0;
   status: DelegationEdgeStatus;
 }
 
@@ -15,7 +14,6 @@ export interface InvokedEdge {
   scope_id: string;
   invoked_at: string;
   task_id: string;
-  depth: number; // increments at every hop
   inherited_permissions: string[]; // explicit subset of parent
 }
 

@@ -25,7 +25,7 @@ MATCH ()-[root_edge:DELEGATED_TO {
   id: $delegation_edge_id
 }]->(root_agent:Agent)
 
-MATCH (root_agent)-[:DELEGATED_TO*0..]->(descendant:Agent)
+MATCH (root_agent)-[:DELEGATED_TO*0..5]->(descendant:Agent)
 
 WITH
   root_edge,
@@ -48,7 +48,7 @@ OPTIONAL MATCH (parent)-[edge:DELEGATED_TO]->(desc)
 WHERE
   parent = root_agent
   OR
-  (root_agent)-[:DELEGATED_TO*0..]->(parent)
+  (root_agent)-[:DELEGATED_TO*0..5]->(parent)
 
 SET
   edge.status = 'REVOKED',

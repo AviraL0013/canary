@@ -28,9 +28,10 @@ export interface CreateInvocationParams {
   child_agent_id: string;
   scope_id: string;
   task_id: string;
-  depth: number;
+  expires_at: string;
   inherited_permissions: string[];
   invocation_edge_id: string;
+  org_id: string;
 }
 
 export interface RecordToolCallParams {
@@ -123,4 +124,55 @@ export interface DelegationGraphRepository {
 
   close(): Promise<void>;
   verifyConnectivity(): Promise<boolean>;
+}
+
+export abstract class CanaryAuthorizationError extends Error {
+  abstract readonly code: string;
+}
+
+export class CanaryDelegationCycleError extends CanaryAuthorizationError {
+  readonly code = "DELEGATION_CYCLE";
+  constructor(
+    public readonly parent_agent_id: string,
+    public readonly child_agent_id: string,
+    public readonly discovered_cycle_path_length: number,
+  ) { super(`Delegation cycle detected (path length ${discovered_cycle_path_length})`); }
+}
+
+export class CanaryMultipleAuthoritySourcesError extends CanaryAuthorizationError {
+  readonly code = "MULTIPLE_AUTHORITY_SOURCES";
+  constructor(
+    public readonly child_agent_id: string,
+    public readonly existing_active_edge_count: number,
+  ) { super(`Agent already has ${existing_active_edge_count} active authority source(s)`); }
+}
+
+export class CanaryDepthExceededError extends CanaryAuthorizationError {
+  readonly code = "DEPTH_EXCEEDED";
+  constructor(
+    public readonly parent_agent_id: string,
+    public readonly parent_depth: number,
+    public readonly max_depth: number,
+  ) { super(`Delegation depth ${parent_depth + 1} exceeds maximum ${max_depth}`); }
+}
+
+export class CanaryScopeAttenuationError extends CanaryAuthorizationError {
+  readonly code = "SCOPE_ATTENUATION_VIOLATION";
+  constructor(
+    public readonly parent_agent_id: string,
+    public readonly child_agent_id: string,
+    public readonly requested_permissions: string[],
+    public readonly parent_permissions: string[],
+    public readonly violating_permissions: string[],
+  ) { super(`Permissions exceed parent authority: ${violating_permissions.join(", ")}`); }
+}
+
+export class CanaryTemporalAttenuationError extends CanaryAuthorizationError {
+  readonly code = "TEMPORAL_ATTENUATION_VIOLATION";
+  constructor(
+    public readonly parent_agent_id: string,
+    public readonly child_agent_id: string,
+    public readonly child_expires_at: string,
+    public readonly parent_expires_at: string,
+  ) { super(`Child expiry ${child_expires_at} exceeds parent expiry ${parent_expires_at}`); }
 }

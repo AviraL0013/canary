@@ -8,14 +8,24 @@
 
 import neo4j, { type Driver, type Session } from "neo4j-driver";
 
-import type {
-  DelegationGraphRepository,
-  CreateDelegationParams,
-  CreateInvocationParams,
-  RecordToolCallParams,
-  RecordActionParams,
-  AuditQueryParams,
+import {
+  type DelegationGraphRepository,
+  type CreateDelegationParams,
+  type CreateInvocationParams,
+  type RecordToolCallParams,
+  type RecordActionParams,
+  type AuditQueryParams,
+  CanaryDelegationCycleError,
+  CanaryMultipleAuthoritySourcesError,
+  CanaryDepthExceededError,
+  CanaryScopeAttenuationError,
+  CanaryTemporalAttenuationError
 } from "./DelegationGraphRepository.js";
+
+import {
+  MAX_AUTHORITY_PATH_DEPTH,
+  MAX_CYCLE_CHECK_DEPTH
+} from "../constants.js";
 
 import type {
   ActionTraceResult,
@@ -130,54 +140,145 @@ export class Neo4jDelegationRepository
   async createInvocation(
     params: CreateInvocationParams
   ): Promise<void> {
+    if (params.parent_agent_id === params.child_agent_id) {
+      throw new CanaryDelegationCycleError(params.parent_agent_id, params.child_agent_id, 0);
+    }
+
     const session: Session = this.driver.session({
       defaultAccessMode: "WRITE",
     });
 
+    const tx = session.beginTransaction();
+
     try {
-      await session.run(
-        `
-        MATCH (parent:Agent {
-          id: $parent_agent_id
-        })
-
-        MERGE (child:Agent {
-          id: $child_agent_id,
-          org_id: parent.org_id
-        })
-
-        ON CREATE SET
-          child.status = 'ACTIVE',
-          child.deployed_at = datetime()
-
-        CREATE (parent)-[:DELEGATED_TO {
-          id: $invocation_edge_id,
-
-          delegation_type: 'AGENT_INVOCATION',
-
-          scope_id: $scope_id,
-
-          delegated_at: datetime(),
-
-          task_id: $task_id,
-
-          depth: $depth,
-
-          status: 'ACTIVE',
-
-          inherited_permissions: $inherited_permissions
-        }]->(child)
-        `,
-        {
-          parent_agent_id: params.parent_agent_id,
-          child_agent_id: params.child_agent_id,
-          scope_id: params.scope_id,
-          task_id: params.task_id,
-          depth: neo4j.int(params.depth),
-          inherited_permissions: params.inherited_permissions,
-          invocation_edge_id: params.invocation_edge_id,
-        }
+      const activeIncomingResult = await tx.run(
+        `MATCH ()-[e:DELEGATED_TO {status:'ACTIVE'}]->(child:Agent {id:$child_agent_id})
+         RETURN count(e) AS active_incoming`,
+        { child_agent_id: params.child_agent_id }
       );
+      
+      const activeIncoming = Number(activeIncomingResult.records[0]?.get("active_incoming") ?? 0);
+      if (activeIncoming > 0) {
+        throw new CanaryMultipleAuthoritySourcesError(params.child_agent_id, activeIncoming);
+      }
+
+      // Select canonical shortest active authority path.
+      // Uses traversal length ONLY as path-selection heuristic.
+      // Authority depth extracted from persisted edge.depth property.
+      const depthResult = await tx.run(
+        `MATCH p = (h:Human)-[:DELEGATED_TO*1..${MAX_AUTHORITY_PATH_DEPTH}]->(parent:Agent {id:$parent_agent_id})
+         WHERE ALL(rel IN relationships(p) WHERE rel.status = 'ACTIVE')
+         WITH p
+         ORDER BY length(p) ASC
+         LIMIT 1
+         RETURN coalesce(last(relationships(p)).depth, 0) AS parent_depth`,
+        { parent_agent_id: params.parent_agent_id }
+      );
+      
+      if (depthResult.records.length === 0) {
+        throw new Error("PARENT_AUTHORITY_INVALID: no deterministic authority lineage found");
+      }
+      
+      const parentDepth = Number(depthResult.records[0]?.get("parent_depth"));
+      const depth = parentDepth + 1;
+      if (depth > MAX_AUTHORITY_PATH_DEPTH) {
+        throw new CanaryDepthExceededError(params.parent_agent_id, parentDepth, MAX_AUTHORITY_PATH_DEPTH);
+      }
+
+      const cycleResult = await tx.run(
+        `MATCH p = (child:Agent {id:$child_agent_id})
+           -[:DELEGATED_TO*1..${MAX_CYCLE_CHECK_DEPTH}]->
+           (parent:Agent {id:$parent_agent_id})
+         RETURN length(p) AS cycle_path_length
+         LIMIT 1`,
+        { child_agent_id: params.child_agent_id, parent_agent_id: params.parent_agent_id }
+      );
+      
+      if (cycleResult.records.length > 0) {
+        throw new CanaryDelegationCycleError(params.parent_agent_id, params.child_agent_id, Number(cycleResult.records[0]?.get("cycle_path_length")));
+      }
+
+      // Select the single active, non-expired incoming authority edge.
+      // If multiple active edges exist, fail deterministically.
+      const parentAuthResult = await tx.run(
+        `MATCH ()-[e:DELEGATED_TO]->(parent:Agent {id:$parent_agent_id})
+         WHERE e.status = 'ACTIVE'
+           AND e.expires_at IS NOT NULL
+           AND e.expires_at > datetime()
+         WITH collect(e) AS edges
+         WHERE size(edges) >= 1
+         WITH edges[0] AS e
+         RETURN e.inherited_permissions AS parent_permissions,
+                toString(e.expires_at)  AS parent_expires_at`,
+        { parent_agent_id: params.parent_agent_id }
+      );
+      
+      if (parentAuthResult.records.length === 0) {
+         throw new Error("PARENT_AUTHORITY_INVALID");
+      }
+      
+      const parentRecord = parentAuthResult.records[0]!;
+      const parentPermissions = parentRecord.get("parent_permissions") as string[];
+      const parentExpiresAt = parentRecord.get("parent_expires_at") as string;
+
+      const parentPerms = new Set(parentPermissions);
+      const violating = params.inherited_permissions.filter(p => !parentPerms.has(p));
+
+      if (violating.length > 0) {
+        throw new CanaryScopeAttenuationError(
+          params.parent_agent_id,
+          params.child_agent_id,
+          params.inherited_permissions,
+          [...parentPerms],
+          violating,
+        );
+      }
+
+      const childExp = new Date(params.expires_at).getTime();
+      const parentExp = new Date(parentExpiresAt).getTime();
+
+      if (childExp > parentExp) {
+        throw new CanaryTemporalAttenuationError(
+          params.parent_agent_id,
+          params.child_agent_id,
+          params.expires_at,
+          parentExpiresAt,
+        );
+      }
+
+      await tx.run(
+        `MATCH (parent:Agent {id: $parent_agent_id})
+         MERGE (child:Agent {id: $child_agent_id, org_id: $org_id})
+         ON CREATE SET child.status = 'ACTIVE', child.deployed_at = datetime()
+
+         CREATE (parent)-[:DELEGATED_TO {
+           id:                    $invocation_edge_id,
+           delegation_type:       'AGENT_INVOCATION',
+           scope_id:              $scope_id,
+           delegated_at:          datetime(),
+           expires_at:            datetime($expires_at),
+           status:                'ACTIVE',
+           depth:                 $depth,
+           inherited_permissions: $inherited_permissions,
+           task_id:               $task_id
+         }]->(child)`,
+         {
+           parent_agent_id: params.parent_agent_id,
+           child_agent_id: params.child_agent_id,
+           org_id: params.org_id,
+           invocation_edge_id: params.invocation_edge_id,
+           scope_id: params.scope_id,
+           expires_at: params.expires_at,
+           depth: neo4j.int(depth),
+           inherited_permissions: params.inherited_permissions,
+           task_id: params.task_id
+         }
+      );
+      
+      await tx.commit();
+    } catch (err) {
+      await tx.rollback();
+      throw err;
     } finally {
       await session.close();
     }
@@ -405,7 +506,8 @@ export class Neo4jDelegationRepository
         RETURN
           a AS agent,
 
-          coalesce(length(chain), 0)
+          // Authority depth = persisted edge.depth, NOT path length
+          coalesce(last(relationships(chain)).depth, 0)
             AS delegation_depth,
 
           coalesce(h.id, '')
@@ -496,7 +598,8 @@ export class Neo4jDelegationRepository
           collect(DISTINCT desc.id)
             AS subtree_agent_ids,
 
-          max(length(p))
+          // Authority depth = max(persisted edge.depth), NOT path length
+          coalesce(max(last(relationships(p)).depth), 0)
             AS total_depth
         `,
         {

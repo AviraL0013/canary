@@ -6,7 +6,7 @@
  *
  * 11-step scenario:
  *  1.  Create delegation: Human → Agent
- *  2.  Agent invokes Sub-Agent (depth=2)
+ *  2.  Agent invokes Sub-Agent (authority depth=1)
  *  2b. Register CRITICAL tool node via sub-agent tool.called event
  *  3.  Sub-Agent calls a CRITICAL tool
  *  4.  Authorization returns REQUIRE_APPROVAL (POLICY_005)
@@ -163,7 +163,7 @@ describe("Canary E2E — Full Authorization Lifecycle", { timeout: TIMEOUT_MS },
 
   // ─── Step 2: Agent → Sub-Agent invocation ──────────────────────────
 
-  it("Step 2: Agent invokes Sub-Agent (depth=2)", async () => {
+  it("Step 2: Agent invokes Sub-Agent (authority depth=1)", async () => {
     await sleep(300);
 
     const result = await emitEvent("delegation.invoked", {
@@ -171,7 +171,7 @@ describe("Canary E2E — Full Authorization Lifecycle", { timeout: TIMEOUT_MS },
       child_agent_id:       SUB_AGENT_ID,
       scope_id:             SCOPE_ID,
       task_id:              TASK_ID,
-      depth:                2,
+      expires_at:           new Date(Date.now() + 86_400_000).toISOString(),
       inherited_permissions: ["read", "write", "execute"],
       invocation_edge_id:   `inv_${randomUUID()}`,
     });
@@ -216,7 +216,7 @@ describe("Canary E2E — Full Authorization Lifecycle", { timeout: TIMEOUT_MS },
 
     expect(result.status).toBe(200);
     // POLICY_005: CRITICAL_TOOL_REQUIRE_APPROVAL
-    // Chain is valid (depth=2, not revoked, not expired), so the only trigger
+    // Chain is valid (authority depth=1, not revoked, not expired), so the only trigger
     // should be the CRITICAL tool → REQUIRE_APPROVAL
     expect(result.body["decision"]).toBe("REQUIRE_APPROVAL");
 
@@ -417,5 +417,234 @@ describe("Canary E2E — Full Authorization Lifecycle", { timeout: TIMEOUT_MS },
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body["delegations"]).toBeDefined();
+  });
+
+  // ─── Hardening Constraints (Cycle, Depth, Scope, Temporal) ─────────
+
+  describe("Hardening Constraints", () => {
+    const H_ID = `human_h_${randomUUID().slice(0, 8)}`;
+    const A_ID = `agent_a_${randomUUID().slice(0, 8)}`;
+    const B_ID = `agent_b_${randomUUID().slice(0, 8)}`;
+    const C_ID = `agent_c_${randomUUID().slice(0, 8)}`;
+    const S_ID = `scope_h_${randomUUID().slice(0, 8)}`;
+    const T_ID = `task_h_${randomUUID().slice(0, 8)}`;
+    
+    const PARENT_EXP = new Date(Date.now() + 86_400_000).toISOString();
+    
+    beforeAll(async () => {
+      await emitEvent("delegation.created", {
+        human_id: H_ID,
+        agent_id: A_ID,
+        scope_id: S_ID,
+        permissions: ["read", "write"],
+        expires_at: PARENT_EXP,
+        grant_reason: "Hardening test root",
+        delegation_edge_id: `del_${randomUUID()}`,
+      });
+      await sleep(300);
+    });
+
+    it("1. A -> A (self-loop) fails with DELEGATION_CYCLE", async () => {
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: A_ID,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toBe("DELEGATION_CYCLE");
+    });
+
+    it("3. Valid chain A -> B -> C", async () => {
+      const res1 = await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: B_ID,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read", "write"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res1.status).toBe(200);
+
+      await sleep(300);
+
+      const res2 = await emitEvent("delegation.invoked", {
+        parent_agent_id: B_ID,
+        child_agent_id: C_ID,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read", "write"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res2.status).toBe(200);
+    });
+
+    it("2. A -> B -> C established, then C -> A attempted fails with DELEGATION_CYCLE", async () => {
+      await sleep(300);
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: C_ID,
+        child_agent_id: A_ID,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toBe("DELEGATION_CYCLE");
+    });
+
+    it("4. Child perms ['read'], parent has ['read', 'write'] succeeds", async () => {
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: `agent_d_${randomUUID().slice(0, 8)}`,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("5. Child requests ['read', 'admin'], parent has ['read', 'write'] fails with SCOPE_ATTENUATION_VIOLATION", async () => {
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: `agent_e_${randomUUID().slice(0, 8)}`,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read", "admin"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toBe("SCOPE_ATTENUATION_VIOLATION");
+    });
+
+    it("6. Child expires_at = parent expires_at + 1 day fails with TEMPORAL_ATTENUATION_VIOLATION", async () => {
+      const childExp = new Date(new Date(PARENT_EXP).getTime() + 86_400_000).toISOString();
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: `agent_f_${randomUUID().slice(0, 8)}`,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: childExp,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toBe("TEMPORAL_ATTENUATION_VIOLATION");
+    });
+
+    it("7. Chain at depth 5, attempt depth 6 fails with DEPTH_EXCEEDED", async () => {
+      let currentParent = C_ID;
+      const dId = `agent_depth_4_${randomUUID().slice(0, 8)}`;
+      let res = await emitEvent("delegation.invoked", {
+        parent_agent_id: currentParent,
+        child_agent_id: dId,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(200);
+      await sleep(300);
+
+      const eId = `agent_depth_5_${randomUUID().slice(0, 8)}`;
+      res = await emitEvent("delegation.invoked", {
+        parent_agent_id: dId,
+        child_agent_id: eId,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(200);
+      await sleep(300);
+
+      const fId = `agent_depth_6_${randomUUID().slice(0, 8)}`;
+      res = await emitEvent("delegation.invoked", {
+        parent_agent_id: eId,
+        child_agent_id: fId,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toBe("DEPTH_EXCEEDED");
+    });
+
+    it("8. Parent edge revoked, child attempts to delegate further fails", async () => {
+      const r1Id = `agent_r1_${randomUUID().slice(0, 8)}`;
+      const invEdge = `inv_${randomUUID()}`;
+      await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: r1Id,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: invEdge,
+      });
+      await sleep(300);
+
+      await emitEvent("delegation.revoked", {
+        delegation_edge_id: invEdge,
+        human_id: H_ID,
+        agent_id: r1Id,
+        revocation_reason: "test",
+        cascade_affected_agents: [r1Id]
+      });
+      await sleep(500);
+
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: r1Id,
+        child_agent_id: `agent_r2_${randomUUID().slice(0, 8)}`,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: PARENT_EXP,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toContain("PARENT_AUTHORITY_INVALID");
+    });
+
+    it("9. Parent edge expired, child attempts to delegate further fails", async () => {
+      const exp1Id = `agent_exp1_${randomUUID().slice(0, 8)}`;
+      const shortExp = new Date(Date.now() + 1000).toISOString();
+      await emitEvent("delegation.invoked", {
+        parent_agent_id: A_ID,
+        child_agent_id: exp1Id,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: shortExp,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      
+      await sleep(1500); // Wait for expiration
+
+      const res = await emitEvent("delegation.invoked", {
+        parent_agent_id: exp1Id,
+        child_agent_id: `agent_exp2_${randomUUID().slice(0, 8)}`,
+        scope_id: S_ID,
+        task_id: T_ID,
+        inherited_permissions: ["read"],
+        expires_at: shortExp,
+        invocation_edge_id: `inv_${randomUUID()}`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body["error"]).toContain("PARENT_AUTHORITY_INVALID");
+    });
   });
 });

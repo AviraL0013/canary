@@ -30,7 +30,7 @@ export interface DelegationInvokedPayload {
   child_agent_id: string;
   scope_id: string;
   task_id: string;
-  depth: number;
+  expires_at: string;
   inherited_permissions: string[];
   invocation_edge_id: string;
 }

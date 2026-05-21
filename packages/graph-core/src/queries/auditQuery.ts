@@ -9,14 +9,14 @@ import neo4j from "neo4j-driver";
 
 const AUDIT_QUERY_CYPHER = `
 MATCH (human:Human {org_id: $org_id})
-  -[:DELEGATED_TO*1..]->(leaf:Agent)
+  -[:DELEGATED_TO*1..5]->(leaf:Agent)
   -[:CALLED]->(tool:Tool)
   -[:EXECUTED]->(action:Action)
 WHERE ($human_id = '' OR human.id = $human_id)
   AND action.executed_at >= datetime($start_time)
   AND action.executed_at <= datetime($end_time)
 
-MATCH full_path = (human)-[:DELEGATED_TO*1..]->(leaf)-[call:CALLED]->(tool)-[:EXECUTED]->(action)
+MATCH full_path = (human)-[:DELEGATED_TO*1..5]->(leaf)-[call:CALLED]->(tool)-[:EXECUTED]->(action)
 
 WITH human, action, tool, call, full_path,
   [node IN nodes(full_path) | {
@@ -59,7 +59,7 @@ RETURN
 
 const COUNT_QUERY_CYPHER = `
 MATCH (human:Human {org_id: $org_id})
-  -[:DELEGATED_TO*1..]->(leaf:Agent)
+  -[:DELEGATED_TO*1..5]->(leaf:Agent)
   -[:CALLED]->(tool:Tool)
   -[:EXECUTED]->(action:Action)
 WHERE ($human_id = '' OR human.id = $human_id)

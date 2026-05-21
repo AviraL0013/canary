@@ -11,7 +11,7 @@ const GET_AUTHORIZATION_CONTEXT_CYPHER = `
 // Case 1: agent IS the root agent (depth 0)
 // Case 2: agent is a descendant via DELEGATED_TO chain
 MATCH (human:Human {org_id: $org_id})-[d:DELEGATED_TO {status: 'ACTIVE'}]->(root:Agent)
-MATCH full_path = (root)-[:DELEGATED_TO*0..]->(target:Agent {id: $agent_id})
+MATCH full_path = (root)-[:DELEGATED_TO*0..5]->(target:Agent {id: $agent_id})
 
 // Collect edges along the chain (DELEGATED_TO hops)
 WITH human, d, root, target, full_path,
@@ -58,7 +58,13 @@ RETURN
   human.id                     AS human_sponsor_id,
   chain_hops                   AS delegation_chain,
   effective_permissions        AS effective_permissions,
-  size(chain_hops)             AS delegation_depth,
+  // Authority depth = max(rel.depth) across chain hops — NOT hop count
+  reduce(maxDepth = 0, r IN coalesce(chain_hops, []) |
+    CASE
+      WHEN coalesce(r.depth, 0) > maxDepth THEN coalesce(r.depth, 0)
+      ELSE maxDepth
+    END
+  )                            AS delegation_depth,
   toString(scope_expires_at)   AS weakest_scope_expires_at,
   [t IN accessible_tools WHERE t.tool_id <> ''] AS accessible_tools,
   toString(datetime())         AS computed_at

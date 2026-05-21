@@ -8,8 +8,8 @@ import type { HumanNode, AgentNode, ToolNode, ActionNode } from "@canary/event-s
 
 const TRACE_ACTION_CYPHER = `
 MATCH (action:Action {id: $action_id})
-MATCH path = (human:Human)-[:DELEGATED_TO*0..]->(agent:Agent)
-             -[:DELEGATED_TO*0..]->(leaf:Agent)
+MATCH path = (human:Human)-[:DELEGATED_TO*0..5]->(agent:Agent)
+             -[:DELEGATED_TO*0..5]->(leaf:Agent)
              -[:CALLED]->(tool:Tool)
              -[:EXECUTED]->(action)
 
@@ -17,6 +17,7 @@ MATCH path = (human:Human)-[:DELEGATED_TO*0..]->(agent:Agent)
 OPTIONAL MATCH (approver:Human)-[approval:APPROVED]->(action)
 
 WITH human, agent, leaf, tool, action, path, approver, approval
+// Use traversal length ONLY as path-selection heuristic — NOT authority depth
 ORDER BY length(path) ASC
 LIMIT 1
 
@@ -61,7 +62,8 @@ RETURN
     executed_at:  coalesce(toString(rel.executed_at), ''),
     authorization_decision_id: coalesce(rel.authorization_decision_id, '')
   }]                                 AS chain_edges,
-  length(path)                       AS total_depth,
+  // Authority depth = persisted edge.depth, NOT path length
+  coalesce(last(relationships(path)).depth, 0) AS total_depth,
   approval_nodes                     AS approval_nodes
 `;
 

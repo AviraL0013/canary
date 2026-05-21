@@ -73,16 +73,17 @@ export async function eventsRoute(server: FastifyInstance) {
           break;
 
         case "delegation.invoked":
-          await repository.createInvocation({
-            parent_agent_id: event.payload.parent_agent_id,
-            child_agent_id: event.payload.child_agent_id,
-            scope_id: event.payload.scope_id,
-            task_id: event.payload.task_id,
-            depth: event.payload.depth,
-            inherited_permissions: event.payload.inherited_permissions,
-            invocation_edge_id: event.payload.invocation_edge_id,
-          });
-          break;
+  await repository.createInvocation({
+    parent_agent_id: event.payload.parent_agent_id,
+    child_agent_id: event.payload.child_agent_id,
+    scope_id: event.payload.scope_id,
+    task_id: event.payload.task_id,
+    expires_at: event.payload.expires_at,
+    inherited_permissions: event.payload.inherited_permissions,
+    invocation_edge_id: event.payload.invocation_edge_id,
+    org_id: event.org_id,
+  });
+  break;
 
         case "tool.called":
           await repository.recordToolCall({

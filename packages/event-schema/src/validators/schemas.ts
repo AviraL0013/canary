@@ -44,9 +44,9 @@ export const DelegationInvokedPayloadSchema = z.object({
   child_agent_id: z.string().min(1),
   scope_id: z.string().min(1),
   task_id: z.string().min(1),
-  depth: z.number().int().nonnegative(),
   inherited_permissions: z.array(z.string()),
   invocation_edge_id: z.string().min(1),
+  expires_at: IsoDateSchema,
 });
 
 export const ToolCalledPayloadSchema = z.object({

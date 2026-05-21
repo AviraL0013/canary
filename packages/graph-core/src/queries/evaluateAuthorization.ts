@@ -14,9 +14,9 @@ MATCH (tool:Tool {id: $tool_id})
 
 // Find delegation chain from human sponsor to this agent
 OPTIONAL MATCH chain_path = (human:Human)-[:DELEGATED_TO]->(root:Agent)
-  -[:DELEGATED_TO*0..]->(agent)
+  -[:DELEGATED_TO*0..5]->(agent)
 WHERE all(r IN relationships(chain_path)
-  WHERE coalesce(r.status, 'ACTIVE') = 'ACTIVE')
+  WHERE r.status = 'ACTIVE')
 
 // Collect chain relationships for validation
 WITH agent, tool, human, chain_path,
@@ -30,13 +30,19 @@ WITH agent, tool, human, chain_path,
   }] AS chain_rels
 
 // Check for any revoked edge
+// Authority depth = max(rel.depth) across active chain — NOT hop count
 WITH agent, tool, human, chain_path, chain_rels,
   human IS NOT NULL                                    AS chain_found,
   NOT any(r IN chain_rels WHERE r.status = 'REVOKED')  AS chain_unrevoked,
   NOT any(r IN chain_rels WHERE r.expires_at < datetime()) AS chain_unexpired,
   [r IN chain_rels | r.scope_id] AS scope_chain,
   [r IN chain_rels | r.permissions] AS perm_chain,
-  coalesce(size(chain_rels), 0)                        AS delegation_depth
+  reduce(maxDepth = 0, r IN coalesce(chain_rels, []) |
+    CASE
+      WHEN coalesce(r.depth, 0) > maxDepth THEN coalesce(r.depth, 0)
+      ELSE maxDepth
+    END
+  )                                                    AS delegation_depth
 
 // Check scope_id match
 WITH agent, tool, human, chain_found, chain_unrevoked, chain_unexpired,
