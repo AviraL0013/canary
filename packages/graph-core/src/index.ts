@@ -11,6 +11,15 @@ export type {
 
 export { Neo4jDelegationRepository } from "./repository/Neo4jDelegationRepository.js";
 
+export {
+  CanaryDelegationCycleError,
+  CanaryDepthExceededError,
+  CanaryMultipleAuthoritySourcesError,
+  CanaryScopeAttenuationError,
+  CanaryTemporalAttenuationError,
+  CanaryParentAuthorityInvalidError,
+} from "./repository/DelegationGraphRepository.js";
+
 export type {
   ChainHop,
   ActionTraceResult,

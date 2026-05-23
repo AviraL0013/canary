@@ -201,15 +201,24 @@ importers:
       '@canary/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      neo4j-driver:
+        specifier: ^5.28.3
+        version: 5.28.3
     devDependencies:
+      '@types/node':
+        specifier: ^20.19.41
+        version: 20.19.41
       tsx:
         specifier: ^4.16.0
         version: 4.22.0
       typescript:
-        specifier: ^5.5.0
+        specifier: ^5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^2.0.0
+        specifier: ^2.1.9
         version: 2.1.9(@types/node@20.19.41)
 
 packages:
@@ -778,6 +787,10 @@ packages:
   denque@2.1.0:
     resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
     engines: {node: '>=0.10'}
+
+  dotenv@17.4.2:
+    resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
+    engines: {node: '>=12'}
 
   es-module-lexer@1.7.0:
     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
@@ -1523,6 +1536,8 @@ snapshots:
   deep-eql@5.0.2: {}
 
   denque@2.1.0: {}
+
+  dotenv@17.4.2: {}
 
   es-module-lexer@1.7.0: {}
 

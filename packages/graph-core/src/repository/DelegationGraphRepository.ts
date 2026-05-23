@@ -129,7 +129,16 @@ export interface DelegationGraphRepository {
 export abstract class CanaryAuthorizationError extends Error {
   abstract readonly code: string;
 }
+export class CanaryParentAuthorityInvalidError
+  extends Error {
 
+  constructor(message: string) {
+    super(message);
+
+    this.name =
+      "CanaryParentAuthorityInvalidError";
+  }
+}
 export class CanaryDelegationCycleError extends CanaryAuthorizationError {
   readonly code = "DELEGATION_CYCLE";
   constructor(

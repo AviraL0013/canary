@@ -8,6 +8,14 @@ import { ContextCache } from "@canary/authorization-engine";
 import { handleRevocation } from "../handlers/revocationHandler.js";
 import postgres from "postgres";
 import { Redis } from "ioredis";
+import {
+  CanaryDelegationCycleError,
+  CanaryDepthExceededError,
+  CanaryMultipleAuthoritySourcesError,
+  CanaryScopeAttenuationError,
+  CanaryTemporalAttenuationError,
+  CanaryParentAuthorityInvalidError
+} from "@canary/graph-core"
 
 export async function eventsRoute(server: FastifyInstance) {
   // Initialize dependencies
@@ -185,11 +193,70 @@ export async function eventsRoute(server: FastifyInstance) {
         status: "ingested",
       });
     } catch (err) {
-      server.log.error(err, "Event processing failed");
-      return reply.status(500).send({
-        error: "PROCESSING_ERROR",
-        message: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
+  server.log.error(err, "Event processing failed");
+  console.log("ERR", err);
+console.log("NAME", err?.constructor?.name);
+console.log(
+  "INSTANCEOF DEPTH",
+  err instanceof CanaryDepthExceededError,
+);
+console.log(
+  "INSTANCEOF CYCLE",
+  err instanceof CanaryDelegationCycleError,
+);
+  if (err instanceof CanaryDelegationCycleError) {
+    return reply.status(400).send({
+      error: "DELEGATION_CYCLE",
+      message: err.message,
+    });
+  }
+
+  if (err instanceof CanaryMultipleAuthoritySourcesError) {
+    return reply.status(400).send({
+      error: "MULTIPLE_ACTIVE_AUTHORITIES",
+      message: err.message,
+    });
+  }
+
+  if (err instanceof CanaryDepthExceededError) {
+    return reply.status(400).send({
+      error: "DEPTH_EXCEEDED",
+      message: err.message,
+    });
+  }
+
+  if (err instanceof CanaryScopeAttenuationError) {
+    return reply.status(400).send({
+      error: "SCOPE_ATTENUATION_VIOLATION",
+      message: err.message,
+    });
+  }
+
+  if (err instanceof CanaryTemporalAttenuationError) {
+    return reply.status(400).send({
+      error: "TEMPORAL_ATTENUATION_VIOLATION",
+      message: err.message,
+    });
+  }
+  if (
+  err instanceof
+  CanaryParentAuthorityInvalidError
+) {
+  return reply.status(400).send({
+    error:
+      "PARENT_AUTHORITY_INVALID",
+
+    message:
+      err.message,
+  });
+}
+  return reply.status(500).send({
+    error: "PROCESSING_ERROR",
+    message:
+      err instanceof Error
+        ? err.message
+        : "Unknown error",
+  });
+}
   });
 }

@@ -19,7 +19,8 @@ import {
   CanaryMultipleAuthoritySourcesError,
   CanaryDepthExceededError,
   CanaryScopeAttenuationError,
-  CanaryTemporalAttenuationError
+  CanaryTemporalAttenuationError,
+  CanaryParentAuthorityInvalidError
 } from "./DelegationGraphRepository.js";
 
 import {
@@ -151,6 +152,18 @@ export class Neo4jDelegationRepository
     const tx = session.beginTransaction();
 
     try {
+      const cycleResult = await tx.run(
+        `MATCH p = (child:Agent {id:$child_agent_id})
+           -[:DELEGATED_TO*1..${MAX_CYCLE_CHECK_DEPTH}]->
+           (parent:Agent {id:$parent_agent_id})
+         RETURN length(p) AS cycle_path_length
+         LIMIT 1`,
+        { child_agent_id: params.child_agent_id, parent_agent_id: params.parent_agent_id }
+      );
+      
+      if (cycleResult.records.length > 0) {
+        throw new CanaryDelegationCycleError(params.parent_agent_id, params.child_agent_id, Number(cycleResult.records[0]?.get("cycle_path_length")));
+      }
       const activeIncomingResult = await tx.run(
         `MATCH ()-[e:DELEGATED_TO {status:'ACTIVE'}]->(child:Agent {id:$child_agent_id})
          RETURN count(e) AS active_incoming`,
@@ -166,7 +179,7 @@ export class Neo4jDelegationRepository
       // Uses traversal length ONLY as path-selection heuristic.
       // Authority depth extracted from persisted edge.depth property.
       const depthResult = await tx.run(
-        `MATCH p = (h:Human)-[:DELEGATED_TO*1..${MAX_AUTHORITY_PATH_DEPTH}]->(parent:Agent {id:$parent_agent_id})
+        `MATCH p = (h:Human)-[:DELEGATED_TO*1..${MAX_AUTHORITY_PATH_DEPTH + 1}]->(parent:Agent {id:$parent_agent_id})
          WHERE ALL(rel IN relationships(p) WHERE rel.status = 'ACTIVE')
          WITH p
          ORDER BY length(p) ASC
@@ -176,7 +189,9 @@ export class Neo4jDelegationRepository
       );
       
       if (depthResult.records.length === 0) {
-        throw new Error("PARENT_AUTHORITY_INVALID: no deterministic authority lineage found");
+        throw new CanaryParentAuthorityInvalidError(
+  "no deterministic authority lineage found",
+);
       }
       
       const parentDepth = Number(depthResult.records[0]?.get("parent_depth"));
@@ -185,18 +200,7 @@ export class Neo4jDelegationRepository
         throw new CanaryDepthExceededError(params.parent_agent_id, parentDepth, MAX_AUTHORITY_PATH_DEPTH);
       }
 
-      const cycleResult = await tx.run(
-        `MATCH p = (child:Agent {id:$child_agent_id})
-           -[:DELEGATED_TO*1..${MAX_CYCLE_CHECK_DEPTH}]->
-           (parent:Agent {id:$parent_agent_id})
-         RETURN length(p) AS cycle_path_length
-         LIMIT 1`,
-        { child_agent_id: params.child_agent_id, parent_agent_id: params.parent_agent_id }
-      );
       
-      if (cycleResult.records.length > 0) {
-        throw new CanaryDelegationCycleError(params.parent_agent_id, params.child_agent_id, Number(cycleResult.records[0]?.get("cycle_path_length")));
-      }
 
       // Select the single active, non-expired incoming authority edge.
       // If multiple active edges exist, fail deterministically.
@@ -206,7 +210,7 @@ export class Neo4jDelegationRepository
            AND e.expires_at IS NOT NULL
            AND e.expires_at > datetime()
          WITH collect(e) AS edges
-         WHERE size(edges) >= 1
+         WHERE size(edges) = 1
          WITH edges[0] AS e
          RETURN e.inherited_permissions AS parent_permissions,
                 toString(e.expires_at)  AS parent_expires_at`,
@@ -214,7 +218,9 @@ export class Neo4jDelegationRepository
       );
       
       if (parentAuthResult.records.length === 0) {
-         throw new Error("PARENT_AUTHORITY_INVALID");
+         throw new CanaryParentAuthorityInvalidError(
+  "parent authority is inactive or expired",
+);
       }
       
       const parentRecord = parentAuthResult.records[0]!;
