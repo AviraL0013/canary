@@ -194,16 +194,7 @@ export async function eventsRoute(server: FastifyInstance) {
       });
     } catch (err) {
   server.log.error(err, "Event processing failed");
-  console.log("ERR", err);
-console.log("NAME", err?.constructor?.name);
-console.log(
-  "INSTANCEOF DEPTH",
-  err instanceof CanaryDepthExceededError,
-);
-console.log(
-  "INSTANCEOF CYCLE",
-  err instanceof CanaryDelegationCycleError,
-);
+  
   if (err instanceof CanaryDelegationCycleError) {
     return reply.status(400).send({
       error: "DELEGATION_CYCLE",

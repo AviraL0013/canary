@@ -166,15 +166,7 @@ describe(
                 "execute",
             });
 
-          console.log(
-            "AUTH STATUS",
-            result.status,
-          );
-
-          console.log(
-            "AUTH BODY",
-            result.body,
-          );
+          
 
           return (
             result.status === 200

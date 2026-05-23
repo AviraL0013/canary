@@ -130,9 +130,13 @@ export abstract class CanaryAuthorizationError extends Error {
   abstract readonly code: string;
 }
 export class CanaryParentAuthorityInvalidError
-  extends Error {
+  extends CanaryAuthorizationError {
+
+  readonly code =
+    "PARENT_AUTHORITY_INVALID";
 
   constructor(message: string) {
+
     super(message);
 
     this.name =

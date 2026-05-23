@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 
 import {
-  queryNeo4j,
+  clearNeo4j,
+  closeNeo4j,
 } from "../helpers/neo4j";
 
 import {
@@ -16,7 +17,7 @@ export default async function globalSetup() {
     "INGESTION_URL",
     "AUTHORIZATION_URL",
     "NEO4J_URI",
-    "NEO4J_USERNAME",
+    "NEO4J_USER",
     "NEO4J_PASSWORD",
   ];
 
@@ -35,7 +36,7 @@ export default async function globalSetup() {
 
       const response =
         await fetch(
-          `${process.env.AUTHORIZATION_URL}/health`,
+          `${process.env.AUTHORIZATION_URL}/v1/health`,
         );
 
       return response.ok;
@@ -53,7 +54,7 @@ export default async function globalSetup() {
 
       const response =
         await fetch(
-          `${process.env.INGESTION_URL}/health`,
+          `${process.env.INGESTION_URL}/v1/health`,
         );
 
       return response.ok;
@@ -66,14 +67,31 @@ export default async function globalSetup() {
     },
   );
 
-  // deterministic graph cleanup
-
-  await queryNeo4j(`
-    MATCH (n)
-    DETACH DELETE n
-  `);
+  await clearNeo4j();
 
   console.log(
     "E2E global setup complete",
   );
+
+  // REAL vitest teardown
+  return async () => {
+
+    try {
+
+      await clearNeo4j();
+
+      await closeNeo4j();
+
+      console.log(
+        "E2E global teardown complete",
+      );
+
+    } catch (err) {
+
+      console.error(
+        "Global teardown cleanup failed",
+        err,
+      );
+    }
+  };
 }
