@@ -265,13 +265,16 @@ export class Neo4jDelegationRepository
   WITH parent
 
   MERGE (child:Agent {
-    id: $child_agent_id,
-    org_id: $org_id
+    id: $child_agent_id
   })
 
   ON CREATE SET
+    child.org_id = $org_id,
     child.status = 'ACTIVE',
     child.deployed_at = datetime()
+
+  WITH parent, child
+  WHERE child.org_id = $org_id
 
   SET child._lock = timestamp()
 

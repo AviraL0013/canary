@@ -657,4 +657,131 @@ describe("concurrency / race conditions", () => {
       ).toBe(0);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SCENARIO 7 — MERGE Identity & Tenant Isolation
+  //
+  // Validate that node uniqueness uses ONLY canonical identity (id),
+  // and that tenant validation rejects cross-org contamination without
+  // triggering database constraint errors.
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("MERGE identity & tenant isolation", () => {
+    const orgA = uid("orgA");
+    const orgB = uid("orgB");
+    const humanA = uid("humanA");
+    const humanB = uid("humanB");
+    const scope = uid("scope");
+    const parentA = uid("parent_orgA");
+    const parentB = uid("parent_orgB");
+    const expires = expiresInOneDay();
+
+    beforeAll(async () => {
+      // Setup parents in two different orgs
+      await setupRootDelegation({ orgId: orgA, humanId: humanA, agentId: parentA, scopeId: scope, expiresAt: expires });
+      await setupRootDelegation({ orgId: orgB, humanId: humanB, agentId: parentB, scopeId: scope, expiresAt: expires });
+    });
+
+    it("TEST 1 - SAME ORG REUSE: reuses existing child node without duplicate creation", async () => {
+      const child = uid("reuse_child");
+      
+      // Seed an existing node in orgA
+      await queryNeo4j(
+        `CREATE (a:Agent {id: $id, org_id: $org_id, status: 'INACTIVE'})`,
+        { id: child, org_id: orgA }
+      );
+
+      const result = await emitEvent(orgA, "delegation.invoked", {
+        parent_agent_id: parentA,
+        child_agent_id: child,
+        scope_id: scope,
+        task_id: uid("task"),
+        inherited_permissions: ["read"],
+        expires_at: expires,
+        invocation_edge_id: freshEdgeId(),
+      });
+      await settle();
+
+      expect(result.status, "Delegation should succeed for same-org reuse").toBe(200);
+
+      const records = await queryNeo4j(
+        `MATCH (a:Agent {id: $id}) RETURN count(a) AS n`,
+        { id: child }
+      );
+      expect(Number(records[0]?.get("n")), "Exactly 1 Agent node should exist").toBe(1);
+    });
+
+    it("TEST 2 - CROSS ORG COLLISION: naturally rejects cross-org contamination with no duplicates", async () => {
+      const child = uid("collision_child");
+      
+      // Seed an existing node in orgA
+      await queryNeo4j(
+        `CREATE (a:Agent {id: $id, org_id: $org_id, status: 'INACTIVE'})`,
+        { id: child, org_id: orgA }
+      );
+
+      // Attempt delegation from orgB parent
+      const result = await emitEvent(orgB, "delegation.invoked", {
+        parent_agent_id: parentB,
+        child_agent_id: child,
+        scope_id: scope,
+        task_id: uid("task"),
+        inherited_permissions: ["read"],
+        expires_at: expires,
+        invocation_edge_id: freshEdgeId(),
+      });
+      await settle();
+
+      // Expecting failure due to missing writeResult records from the WHERE child.org_id filter
+      expect(result.status, "Delegation MUST fail for cross-org collision").not.toBe(200); 
+
+      const records = await queryNeo4j(
+        `MATCH (a:Agent {id: $id}) RETURN count(a) AS n, collect(a.org_id) AS orgs`,
+        { id: child }
+      );
+      expect(Number(records[0]?.get("n")), "Exactly 1 Agent node should still exist").toBe(1);
+      expect(records[0]?.get("orgs")[0], "Child must retain original org_id").toBe(orgA);
+
+      const active = await activeIncomingCount(child);
+      expect(active, "Child must have 0 ACTIVE edges").toBe(0);
+    });
+
+    it("TEST 3 - CONCURRENT CLAIM STABILITY: handles concurrent same-org delegations safely", async () => {
+      const child = uid("concurrent_claim_child");
+      const parents = Array.from({ length: 5 }, () => uid("cc_parent"));
+      
+      await Promise.all(
+        parents.map((p) =>
+          setupRootDelegation({ orgId: orgA, humanId: humanA, agentId: p, scopeId: scope, expiresAt: expires })
+        )
+      );
+
+      // Fire 5 concurrent delegations to a brand new child
+      const results = await Promise.all(
+        parents.map((p) =>
+          emitEvent(orgA, "delegation.invoked", {
+            parent_agent_id: p,
+            child_agent_id: child,
+            scope_id: scope,
+            task_id: uid("task"),
+            inherited_permissions: ["read"],
+            expires_at: expires,
+            invocation_edge_id: freshEdgeId(),
+          })
+        )
+      );
+      await settle();
+
+      const successes = results.filter((r) => r.status === 200).length;
+      expect(successes, "Exactly 1 concurrent claim should win").toBe(1);
+
+      const records = await queryNeo4j(
+        `MATCH (a:Agent {id: $id}) RETURN count(a) AS n`,
+        { id: child }
+      );
+      expect(Number(records[0]?.get("n")), "Exactly 1 Agent node should exist").toBe(1);
+      
+      const active = await activeIncomingCount(child);
+      expect(active, "Child must have exactly 1 ACTIVE edge").toBe(1);
+    });
+  });
 });
