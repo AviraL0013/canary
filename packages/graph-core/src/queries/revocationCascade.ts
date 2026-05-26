@@ -34,16 +34,38 @@ WITH
   root_agent
 
 // Traverse full subtree.
-MATCH (root_agent)-[:DELEGATED_TO*0..5]->(descendant:Agent)
+MATCH path = (root_agent)-[:DELEGATED_TO*0..5]->(descendant:Agent)
 
-// Lock descendants too.
-// Prevents concurrent subtree mutations.
-SET descendant._lock = timestamp()
+WITH root_edge, root_agent, collect(path) AS paths, collect(DISTINCT descendant) AS descendants
+
+// Extract all unique relationships
+WITH root_edge, root_agent, descendants,
+     reduce(acc = [], p IN paths | acc + relationships(p)) AS all_rels
+
+// Convert to distinct list of relationships manually (by unwinding safely)
+UNWIND (CASE WHEN size(all_rels) = 0 THEN [null] ELSE all_rels END) AS r
+WITH root_edge, root_agent, descendants, collect(DISTINCT r) AS distinct_rels_with_null
+WITH root_edge, root_agent, descendants, [x IN distinct_rels_with_null WHERE x IS NOT NULL] AS unique_rels
+
+// Sort relationships by ID for global lock ordering
+UNWIND (CASE WHEN size(unique_rels) = 0 THEN [null] ELSE unique_rels END) AS r2
+WITH root_edge, root_agent, descendants, r2 ORDER BY r2.id
+WITH root_edge, root_agent, descendants, collect(r2) AS sorted_rels_with_null
+WITH root_edge, root_agent, descendants, [x IN sorted_rels_with_null WHERE x IS NOT NULL] AS sorted_rels
+
+// Sort descendants by ID for global lock ordering (never empty because it includes root_agent)
+UNWIND descendants AS d
+WITH root_edge, root_agent, sorted_rels, d ORDER BY d.id
+WITH root_edge, root_agent, sorted_rels, collect(d) AS sorted_descendants
+
+// Acquire locks in deterministic order
+FOREACH (r IN sorted_rels | SET r._lock = timestamp())
+FOREACH (d IN sorted_descendants | SET d._lock = timestamp())
 
 WITH
   root_edge,
   root_agent,
-  collect(DISTINCT descendant) AS descendants
+  sorted_descendants AS descendants
 
 SET
   root_edge.status = 'REVOKED',
@@ -136,7 +158,11 @@ export async function revocationCascade(
         ),
     };
   } catch (err) {
-    await tx.rollback();
+    try {
+      await tx.rollback();
+    } catch (rollbackErr) {
+      // Ignore rollback error to preserve original error
+    }
     throw err;
   } finally {
     await session.close();

@@ -104,13 +104,25 @@ export class DecisionEngine {
 
     // Step 1-3: Get authorization context (cache or graph)
     let context: AuthorizationContext | null;
-    let evaluationSource: "cache" | "graph";
+    let evaluationSource: "cache" | "graph" = "graph";
 
     context = await this.cache.get(request.org_id, request.requesting_agent_id);
 
     if (context) {
-      evaluationSource = "cache";
-    } else {
+      const hasStaleAuthority = context.delegation_chain.some(
+        (hop) =>
+          hop.status !== "ACTIVE" ||
+          (hop.expires_at && new Date(hop.expires_at) < new Date(now))
+      );
+
+      if (hasStaleAuthority) {
+        context = null; // discard cached context, force graph reload
+      } else {
+        evaluationSource = "cache";
+      }
+    }
+
+    if (!context) {
       evaluationSource = "graph";
       context = await this.repository.getAuthorizationContext(
         request.requesting_agent_id,
@@ -130,6 +142,16 @@ export class DecisionEngine {
         now,
         evaluationSource,
         "No delegation chain found for agent"
+      );
+    }
+
+    if (!context.effective_permissions.includes(request.action_type)) {
+      return this.buildBlockDecision(
+        decisionId,
+        request,
+        now,
+        evaluationSource,
+        `Action '${request.action_type}' not within effective permissions scope`
       );
     }
 

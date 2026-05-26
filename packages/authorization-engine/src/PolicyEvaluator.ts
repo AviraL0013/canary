@@ -120,8 +120,35 @@ export class PolicyEvaluator {
     policy: PolicyConfig,
     input: PolicyEvaluationInput
   ): PolicyEvaluationResult {
-    // Check each hop's permissions are subset of parent
     const chain = input.context.delegation_chain;
+
+    // recompute effective permissions from the chain
+    const recomputed = this.computeEffectivePermissions(chain);
+    const stored = input.context.effective_permissions || [];
+
+    // compare recomputed permissions with stored
+    const recomputedSorted = [...recomputed].sort();
+    const storedSorted = [...stored].sort();
+
+    const isMatch =
+      recomputedSorted.length === storedSorted.length &&
+      recomputedSorted.every((val, index) => val === storedSorted[index]);
+
+    if (!isMatch) {
+      return {
+        policy_id: policy.policy_id,
+        policy_name: "SCOPE_ATTENUATION_REQUIRED",
+        matched: true,
+        outcome: "BLOCK",
+        reason: "Stored effective permissions diverge from attenuation intersection",
+        evaluated_inputs: {
+          stored: storedSorted,
+          recomputed: recomputedSorted,
+        },
+      };
+    }
+
+    // Check each hop's permissions are subset of parent
     let attenuationViolation = false;
     let violationDetail = "";
 
@@ -273,5 +300,20 @@ export class PolicyEvaluator {
         : "Same org execution",
       evaluated_inputs: { agent_org: agentOrg, tool_org: toolOrg },
     };
+  }
+
+  private computeEffectivePermissions(
+    chain: AuthorizationContext["delegation_chain"]
+  ): string[] {
+    if (!chain || chain.length === 0) return [];
+
+    let effective = new Set(chain[0].inherited_permissions ?? []);
+
+    for (let i = 1; i < chain.length; i++) {
+      const current = new Set(chain[i].inherited_permissions ?? []);
+      effective = new Set([...effective].filter((x) => current.has(x)));
+    }
+
+    return Array.from(effective);
   }
 }
