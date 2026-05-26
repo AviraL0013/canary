@@ -25,7 +25,20 @@ MATCH ()-[root_edge:DELEGATED_TO {
   id: $delegation_edge_id
 }]->(root_agent:Agent)
 
+// Acquire write lock immediately.
+// Serializes concurrent delegation attempts.
+SET root_agent._lock = timestamp()
+
+WITH
+  root_edge,
+  root_agent
+
+// Traverse full subtree.
 MATCH (root_agent)-[:DELEGATED_TO*0..5]->(descendant:Agent)
+
+// Lock descendants too.
+// Prevents concurrent subtree mutations.
+SET descendant._lock = timestamp()
 
 WITH
   root_edge,
@@ -34,7 +47,8 @@ WITH
 
 SET
   root_edge.status = 'REVOKED',
-  root_edge.revoked_at = datetime()
+  root_edge.revoked_at = datetime(),
+  root_edge.active_child_key = NULL
 
 WITH
   root_edge,
@@ -52,7 +66,8 @@ WHERE
 
 SET
   edge.status = 'REVOKED',
-  edge.revoked_at = datetime()
+  edge.revoked_at = datetime(),
+  edge.active_child_key = NULL
 
 WITH
   root_edge,

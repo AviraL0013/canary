@@ -49,20 +49,54 @@ export async function eventsRoute(server: FastifyInstance) {
 
     const event = parseResult.data;
 
-    // Step 2: Idempotency check — duplicate event_id returns 200
-    try {
-      const existing = await sql`
-        SELECT event_id FROM audit_events WHERE event_id = ${event.event_id}
-      `;
-      if (existing.length > 0) {
-        return reply.status(200).send({
-          event_id: event.event_id,
-          status: "duplicate",
-        });
-      }
-    } catch (err) {
-      server.log.error(err, "Idempotency check failed");
-    }
+    let claimed: boolean;
+
+try {
+  const inserted = await sql`
+    INSERT INTO audit_events (
+      event_id,
+      org_id,
+      event_type,
+      sequence_id,
+      timestamp,
+      payload_json
+    )
+    VALUES (
+      ${event.event_id},
+      ${event.org_id},
+      ${event.event_type},
+      ${event.sequence_id},
+      ${event.timestamp},
+      ${JSON.stringify(event.payload)}
+    )
+
+    ON CONFLICT (event_id)
+    DO NOTHING
+
+    RETURNING event_id
+  `;
+
+  claimed = inserted.length > 0;
+
+} catch (err) {
+  
+  server.log.error(
+    err,
+    "Idempotency INSERT failed"
+  );
+
+  return reply.status(500).send({
+    error: "PROCESSING_ERROR",
+    message: "Audit insert failed",
+  });
+}
+
+if (!claimed) {
+  return reply.status(200).send({
+    event_id: event.event_id,
+    status: "duplicate",
+  });
+}
 
     // Step 3: Process event by type
     try {
@@ -174,26 +208,59 @@ export async function eventsRoute(server: FastifyInstance) {
           break;
       }
 
-      // Step 4: Write to audit log (append-only)
-      await sql`
-        INSERT INTO audit_events (event_id, org_id, event_type, sequence_id, timestamp, payload_json)
-        VALUES (
-          ${event.event_id},
-          ${event.org_id},
-          ${event.event_type},
-          ${event.sequence_id},
-          ${event.timestamp},
-          ${JSON.stringify(event.payload)}
-        )
-        ON CONFLICT (event_id) DO NOTHING
-      `;
+      
 
-      return reply.status(200).send({
-        event_id: event.event_id,
-        status: "ingested",
-      });
-    } catch (err) {
-  server.log.error(err, "Event processing failed");
+
+return reply.status(200).send({
+  event_id: event.event_id,
+  status: "ingested",
+});
+    } catch (err: any) {
+      
+  server.log.error(
+    err,
+    "Event processing failed"
+    
+  );
+  console.error(
+  "FULL ERROR:",
+  JSON.stringify(
+    {
+      name: err?.name,
+      message: err?.message,
+      code: err?.code,
+      stack: err?.stack,
+    },
+    null,
+    2
+  )
+);
+
+  const message =
+    typeof err?.message === "string"
+      ? err.message
+      : "";
+
+  const neo4jCode =
+    typeof err?.code === "string"
+      ? err.code
+      : "";
+
+  const isTransientConflict =
+    neo4jCode.startsWith("Neo.TransientError")
+    ||
+    message.includes("deadlock")
+    ||
+    message.includes("lock");
+
+  // IMPORTANT:
+  // preserve idempotency claim during concurrency races
+  if (!isTransientConflict) {
+    await sql`
+      DELETE FROM audit_events
+      WHERE event_id = ${event.event_id}
+    `.catch(() => {});
+  }
   
   if (err instanceof CanaryDelegationCycleError) {
     return reply.status(400).send({

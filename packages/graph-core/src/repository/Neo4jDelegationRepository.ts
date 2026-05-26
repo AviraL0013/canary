@@ -252,40 +252,127 @@ export class Neo4jDelegationRepository
         );
       }
 
-      await tx.run(
-        `MATCH (parent:Agent {id: $parent_agent_id})
-         MERGE (child:Agent {id: $child_agent_id, org_id: $org_id})
-         ON CREATE SET child.status = 'ACTIVE', child.deployed_at = datetime()
+      const writeResult = await tx.run(
+  `
+  MATCH (parent:Agent {id: $parent_agent_id})
+  SET parent._lock = timestamp()
 
-         CREATE (parent)-[:DELEGATED_TO {
-           id:                    $invocation_edge_id,
-           delegation_type:       'AGENT_INVOCATION',
-           scope_id:              $scope_id,
-           delegated_at:          datetime(),
-           expires_at:            datetime($expires_at),
-           status:                'ACTIVE',
-           depth:                 $depth,
-           inherited_permissions: $inherited_permissions,
-           task_id:               $task_id
-         }]->(child)`,
-         {
-           parent_agent_id: params.parent_agent_id,
-           child_agent_id: params.child_agent_id,
-           org_id: params.org_id,
-           invocation_edge_id: params.invocation_edge_id,
-           scope_id: params.scope_id,
-           expires_at: params.expires_at,
-           depth: neo4j.int(depth),
-           inherited_permissions: params.inherited_permissions,
-           task_id: params.task_id
-         }
-      );
-      
-      await tx.commit();
-    } catch (err) {
-      await tx.rollback();
-      throw err;
-    } finally {
+  WITH parent
+
+  MATCH ()-[parentEdge:DELEGATED_TO {status:'ACTIVE'}]->(parent)
+  WHERE parentEdge.expires_at > datetime()
+
+  WITH parent
+
+  MERGE (child:Agent {
+    id: $child_agent_id,
+    org_id: $org_id
+  })
+
+  ON CREATE SET
+    child.status = 'ACTIVE',
+    child.deployed_at = datetime()
+
+  SET child._lock = timestamp()
+
+  WITH parent, child
+
+  OPTIONAL MATCH ()-[existing:DELEGATED_TO {status:'ACTIVE'}]->(child)
+
+  WITH
+    parent,
+    child,
+    count(existing) AS activeIncoming
+
+  WHERE activeIncoming = 0
+
+  CREATE (parent)-[:DELEGATED_TO {
+    id:                    $invocation_edge_id,
+    delegation_type:       'AGENT_INVOCATION',
+    scope_id:              $scope_id,
+    delegated_at:          datetime(),
+    expires_at:            datetime($expires_at),
+    status:                'ACTIVE',
+    depth:                 $depth,
+    inherited_permissions: $inherited_permissions,
+    task_id:               $task_id
+  }]->(child)
+
+  RETURN child.id AS child_id
+  `,
+  {
+    parent_agent_id: params.parent_agent_id,
+    child_agent_id: params.child_agent_id,
+    org_id: params.org_id,
+    invocation_edge_id: params.invocation_edge_id,
+    scope_id: params.scope_id,
+    expires_at: params.expires_at,
+    depth: neo4j.int(depth),
+    inherited_permissions: params.inherited_permissions,
+    task_id: params.task_id
+  }
+);
+
+if (writeResult.records.length === 0) {
+  const recheck = await tx.run(
+    `
+    MATCH ()-[e:DELEGATED_TO {status:'ACTIVE'}]->
+    (child:Agent {id:$child_agent_id})
+
+    RETURN count(e) AS n
+    `,
+    {
+      child_agent_id: params.child_agent_id
+    }
+  );
+
+  const n = Number(
+    recheck.records[0]?.get("n") ?? 0
+  );
+
+  if (n > 0) {
+    throw new CanaryMultipleAuthoritySourcesError(
+      params.child_agent_id,
+      n
+    );
+  }
+
+  throw new CanaryParentAuthorityInvalidError(
+    "parent authority became invalid during write (revocation race)"
+  );
+}
+
+await tx.commit();
+
+    } catch (err: any) {
+
+  await tx.rollback();
+  const message =
+    typeof err?.message === "string"
+      ? err.message
+      : "";
+
+  const code =
+    typeof err?.code === "string"
+      ? err.code
+      : "";
+
+  const isNeo4jConflict =
+    code.startsWith("Neo.TransientError")
+    ||
+    message.includes("deadlock")
+    ||
+    message.includes("lock")
+
+  if (isNeo4jConflict) {
+    throw new CanaryMultipleAuthoritySourcesError(
+      params.child_agent_id,
+      1
+    );
+  }
+
+  throw err;
+} finally {
       await session.close();
     }
   }
